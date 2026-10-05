@@ -1,0 +1,88 @@
+const $ = id => document.getElementById(id);
+
+async function api(url, options={}) {
+  const res = await fetch(url, {headers: {"Content-Type":"application/json"}, ...options});
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.detail || "Request failed");
+  return data;
+}
+
+function setStatus(text, bad=false) {
+  $("status").textContent = "● " + text;
+  $("status").className = bad ? "status bad" : "status";
+}
+
+async function saveKnowledge() {
+  const title = $("title").value.trim();
+  const content = $("content").value.trim();
+  if (!title || !content) return alert("Add a title and some information.");
+  try {
+    setStatus("Saving...");
+    await api("/api/knowledge", {method:"POST", body:JSON.stringify({
+      title, content, source:$("source").value.trim()
+    })});
+    $("title").value = $("source").value = $("content").value = "";
+    setStatus("Saved");
+    loadKnowledge();
+  } catch(e) { setStatus(e.message, true); }
+}
+
+async function loadKnowledge() {
+  const items = await api("/api/knowledge");
+  if (!items.length) {
+    $("knowledge").innerHTML = '<p class="muted">No knowledge saved yet.</p>';
+    return;
+  }
+  $("knowledge").innerHTML = items.map(x => `
+    <article class="knowledge">
+      <div>
+        <h3>${escapeHtml(x.title)}</h3>
+        <p>${escapeHtml(x.content)}</p>
+        <small>${x.topics.map(escapeHtml).join(" · ")}</small>
+      </div>
+      <button class="danger" onclick="deleteKnowledge(${x.id})">Delete</button>
+    </article>`).join("");
+}
+
+async function deleteKnowledge(id) {
+  if (!confirm("Delete this knowledge?")) return;
+  await api("/api/knowledge/" + id, {method:"DELETE"});
+  loadKnowledge();
+}
+
+async function generateIdea() {
+  const query = $("query").value.trim();
+  if (!query) return alert("Ask a question first.");
+  $("result").innerHTML = "Thinking...";
+  try {
+    setStatus("Reasoning...");
+    const data = await api("/api/generate", {
+      method:"POST", body:JSON.stringify({query, limit:6})
+    });
+    $("result").classList.remove("muted");
+    $("result").innerHTML = `
+      <h3>${escapeHtml(data.title)}</h3>
+      <p>${escapeHtml(data.summary)}</p>
+      <h4>Problem</h4><p>${escapeHtml(data.problem)}</p>
+      <h4>Solution</h4><p>${escapeHtml(data.solution)}</p>
+      <h4>Why now</h4><p>${escapeHtml(data.why_now)}</p>
+      <h4>Next step</h4><p>${escapeHtml(data.next_step)}</p>
+      <h4>Connections</h4><p>${(data.connections||[]).map(escapeHtml).join(" · ")}</p>
+      <h4>Knowledge used</h4>
+      <ul>${(data.sources||[]).map(s => `<li><b>${escapeHtml(s.title)}</b> — ${escapeHtml(s.reason)}</li>`).join("")}</ul>
+      <small>Generation mode: ${escapeHtml(data.mode)}</small>`;
+    setStatus("Ready");
+  } catch(e) {
+    $("result").innerHTML = escapeHtml(e.message);
+    $("result").classList.add("muted");
+    setStatus(e.message, true);
+  }
+}
+
+function escapeHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, c => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[c]));
+}
+
+loadKnowledge();
